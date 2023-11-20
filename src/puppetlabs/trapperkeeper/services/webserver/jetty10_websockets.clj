@@ -38,19 +38,28 @@
 (extend-protocol WebSocketProtocol
   WebSocketAdapter
   (send! [this msg]
-    (-send! msg this))
+    (try
+      (-send! msg this)
+      (catch Exception e
+        (log/error e "Caught exception on sending message via websocket."))))
   (close!
     ([this]
-     ;; Close this side
-     (.. this (getSession) (close))
-     ;; Then wait for remote side to close
-     (.. this (awaitClosure)))
+     (try
+       ;; Close this side
+       (.. this (getSession) (close))
+       ;; Then wait for remote side to close
+       (.. this (awaitClosure))
+       (catch Exception e
+         (log/error e "Caught exception on attempting normal close of websocket."))))
     ([this code reason]
-     (.. this (getSession) (close code reason))
-     (.. this (awaitClosure))))
+     (try
+       (.. this (getSession) (close code reason))
+       (.. this (awaitClosure))
+       (catch Exception e
+         (log/error e "Caught exception on attempting close of websocket with code {0} and reason {1}." code reason)))))
   (disconnect [this]
     (when-let [session (.getSession this)]
-     (.disconnect session)))
+      (.disconnect session)))
   (remote-addr [this]
     (.. this (getSession) (getRemoteAddress)))
   (ssl? [this]
@@ -105,7 +114,7 @@
           (log/tracef "%d exiting on-connect" client-id)
           on-connect-result))
       (onWebSocketError [^Throwable e]
-        (log/tracef "%d on-error certname:%s uri:%s" client-id certname requestPath)
+        (log/tracef e "%d on-error certname:%s uri:%s" client-id certname requestPath)
         (let [^WebSocketAdapter this this]
           (proxy-super onWebSocketError e))
         (let [on-error-result (on-error this e)]
@@ -137,9 +146,9 @@
         (try
           (let [timeout-in-seconds 30]
             (when-not (.await closureLatch timeout-in-seconds TimeUnit/SECONDS)
-              (log/info (i18n/trs "Timed out after awaiting closure of websocket from remote for {0} seconds at request path {1}." timeout-in-seconds requestPath))))
+              (log/info (i18n/trs "{0} timed out after awaiting closure of websocket from remote for {1} seconds at request path {2}." client-id timeout-in-seconds requestPath))))
           (catch InterruptedException e
-            (log/info e (i18n/trs "Thread was interrupted when awaiting closure of websocket from remote at request path {0}." requestPath)))))
+            (log/info e (i18n/trs "{0} thread was interrupted when awaiting closure of websocket from remote at request path {1}." client-id requestPath)))))
       (getCerts [] x509certs)
       (getRequestPath [] requestPath))))
 
